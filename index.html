@@ -54,7 +54,7 @@ function dist(a,b){const x=(b[1]-a[1])*rad*Math.cos((a[0]+b[0])/2*rad),y=(b[0]-a
 function bearing(a,b){const y=Math.sin((b[1]-a[1])*rad)*Math.cos(b[0]*rad),x=Math.cos(a[0]*rad)*Math.sin(b[0]*rad)-Math.sin(a[0]*rad)*Math.cos(b[0]*rad)*Math.cos((b[1]-a[1])*rad);return (Math.atan2(y,x)/rad+360)%360}
 const fmt=m=>m>=1000?(m/1000).toFixed(1)+' km':Math.round(m/10)*10+' m';
 // ---------- inicio
-async function init(){IDX=await (await fetch('data/indice.json')).json();
+async function init(){IDX=await (await fetch('indice.json')).json();
  const cs=[...new Map(IDX.map(j=>[j.com,j.cn])).entries()];$('#fCom').innerHTML+=cs.map(([c,n])=>`<option value="${c}">${+c} · ${n}</option>`).join('');
  $('#fCom').value=store.get('com','');drawList();$('#fCom').onchange=()=>{store.set('com',$('#fCom').value);drawList()};$('#fQ').oninput=drawList;
  const last=store.get('ultima',null);if(last&&location.hash==='#nav')open(last)}
@@ -62,7 +62,7 @@ function drawList(){const c=$('#fCom').value,q=$('#fQ').value.toLowerCase();
  $('#list').innerHTML=IDX.filter(j=>(!c||j.com===c)&&(!q||(j.id+' '+j.bar.join(' ')).toLowerCase().includes(q))).map(j=>{const p=store.get('prog_'+j.id,{i:0,pct:0});return `<div class="item" data-id="${j.id}"><b>${j.id} · ${j.cn}</b><span class="mu">${j.bar.join(', ')}</span><span class="mu">${j.km} km de recorrido${p.pct?` · avance ${p.pct} %`:''}</span>${p.pct?`<div class="pg"><i style="width:${p.pct}%"></i></div>`:''}</div>`}).join('')}
 $('#list').addEventListener('click',e=>{const it=e.target.closest('.item');if(it)open(it.dataset.id)});
 // ---------- jornada
-async function open(id){const d=await (await fetch('data/'+id+'.json')).json();
+async function open(id){const c=id.split('-')[0];const d=(await (await fetch(c+'.json')).json())[id];
  J={...d,cum:[0]};for(let i=1;i<d.p.length;i++)J.cum.push(J.cum[i-1]+dist(d.p[i-1],d.p[i]));J.L=J.cum[J.cum.length-1];
  J.man=maneuvers(d);const pr=store.get('prog_'+id,{i:0});J.i=pr.i||0;J.off=0;J.spoken={};trk=store.get('trk_'+id,[]);
  store.set('ultima',id);location.hash='nav';$('#home').style.display='none';$('#nav').style.display='flex';$('#title').textContent=id+' · '+d.bar.slice(0,3).join(', ');
