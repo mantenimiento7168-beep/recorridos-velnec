@@ -27,7 +27,7 @@ input,select{font:inherit;padding:10px;border:1px solid #cfd6d0;border-radius:10
 button{font:inherit;border:0;border-radius:10px;padding:9px 12px;background:#e9eeea;color:var(--fg);cursor:pointer}
 button.pri{background:var(--ac);color:#fff}
 #msg{font-size:.9rem;color:var(--bad);font-weight:600}
-.off #top{background:var(--bad)}
+.off #top{background:var(--bad)}.pre #top{background:#2563eb}#bIr{display:none;width:100%;margin-top:8px;background:#2563eb;color:#fff;border:0}.off #bIr,.pre #bIr{display:block}
 </style></head><body>
 <section id="home">
  <h1>Recorridos de campo · Interventoría AP</h1>
@@ -42,7 +42,7 @@ button.pri{background:var(--ac);color:#fff}
   <div class="row"><b id="title"></b><span class="mu" id="pct">0 %</span></div>
   <div id="bar"><i></i></div>
   <div id="msg"></div>
-  <div class="row"><button id="bBack">◀ Jornadas</button><button id="bVoz">🔊 Voz</button><button id="bCen">Centrar</button><button id="bGpx" class="pri">Guardar GPX</button></div>
+  <button id="bIr">🧭 Cómo llegar (abre Google Maps)</button><div class="row"><button id="bBack">◀ Jornadas</button><button id="bVoz">🔊 Voz</button><button id="bCen">Centrar</button><button id="bGpx" class="pri">Guardar GPX</button></div>
  </div>
 </section>
 <script>
@@ -64,7 +64,7 @@ $('#list').addEventListener('click',e=>{const it=e.target.closest('.item');if(it
 // ---------- jornada
 async function open(id){const c=id.split('-')[0];const d=(await (await fetch(c+'.json')).json())[id];
  J={...d,cum:[0]};for(let i=1;i<d.p.length;i++)J.cum.push(J.cum[i-1]+dist(d.p[i-1],d.p[i]));J.L=J.cum[J.cum.length-1];
- J.man=maneuvers(d);const pr=store.get('prog_'+id,{i:0});J.i=pr.i||0;J.off=0;J.spoken={};trk=store.get('trk_'+id,[]);
+ J.man=maneuvers(d);const pr=store.get('prog_'+id,{i:0});J.i=pr.i||0;J.off=0;J.spoken={};J.started=!!store.get('ini_'+id,0)||J.i>0;trk=store.get('trk_'+id,[]);
  store.set('ultima',id);location.hash='nav';$('#home').style.display='none';$('#nav').style.display='flex';$('#title').textContent=id+' · '+d.bar.slice(0,3).join(', ');
  if(!map){map=L.map('map',{zoomControl:false,preferCanvas:true});L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Esri'}).addTo(map)}
  setTimeout(()=>map.invalidateSize(),50);Object.values(lay).forEach(l=>l&&l.remove());
@@ -90,12 +90,15 @@ function onPos(e){const q=[e.coords.latitude,e.coords.longitude];fixPos=q;$('#ms
  const p=J.p,tol=Math.max(30,Math.min(60,acc*1.5));let best=-1;
  // buscar el primer punto de la ruta, desde la posición actual hacia adelante (≤600 m), que esté cerca
  const lim=J.cum[J.i]+600;for(let k=Math.max(0,J.i-3);k<p.length&&J.cum[k]<=lim;k++){if(dist(q,p[k])<=tol){best=k;let kk=k;while(kk+1<p.length&&dist(q,p[kk+1])<dist(q,p[kk])&&dist(q,p[kk+1])<=tol)kk++;best=kk;break}}
- if(best>=0){J.i=Math.max(J.i,best);J.off=0}else{J.off++}
+ if(best>=0){J.i=Math.max(J.i,best);J.off=0;if(!J.started){J.started=true;store.set('ini_'+J.id,1)}}else{J.off++}
  store.set('prog_'+J.id,{i:J.i,pct:Math.round(J.cum[J.i]/J.L*100)});render()}
 function render(){const p=J.p,i=J.i,pct=Math.round(J.cum[i]/J.L*100);
  lay.done.setLatLngs(p.slice(0,i+1));let j=i;while(j<p.length-1&&J.cum[j]-J.cum[i]<300)j++;lay.next.setLatLngs(p.slice(i,j+1));
  $('#bar i').style.width=pct+'%';$('#pct').textContent=`${pct} % · faltan ${fmt(J.L-J.cum[i])}`;
  if(fixPos){lay.me.setLatLng(fixPos);if(follow)map.setView(fixPos,Math.max(map.getZoom(),17),{animate:false})}
+ const pre=!!fixPos&&J.i===0&&!J.started&&dist(fixPos,p[0])>60;document.body.classList.toggle('pre',pre);
+ if(pre){lay.link.setLatLngs([fixPos,p[0]]);$('#arrow').textContent='🏁';$('#dist').textContent=fmt(dist(fixPos,p[0]));$('#street').textContent='Diríjase al inicio de la jornada'+(J.n[0]?' en '+J.n[0]:'')+' (marcador «Inicio»)';
+  if(!J.spoken.pre){J.spoken.pre=1;speak('Diríjase al inicio de la jornada')}document.body.classList.remove('off');return}
  const off=J.off>=3&&fixPos;document.body.classList.toggle('off',!!off);
  if(off){lay.link.setLatLngs([fixPos,p[i]]);$('#arrow').textContent='⚠';$('#dist').textContent=fmt(dist(fixPos,p[i]));$('#street').textContent='Fuera de la ruta: vuelva a la línea azul'+(J.p[i]&&J.n[i]?' en '+J.n[i]:'');
   if(!J.spoken['off'+i]){J.spoken['off'+i]=1;speak('Fuera de la ruta. Regrese a la línea azul.')}return}
@@ -110,6 +113,7 @@ function render(){const p=J.p,i=J.i,pct=Math.round(J.cum[i]/J.L*100);
  if(dm<=35&&!J.spoken['b'+m.i]){J.spoken['b'+m.i]=1;speak(t2)}}
 // ---------- botones
 $('#bBack').onclick=()=>{if(watch!=null){navigator.geolocation.clearWatch(watch);watch=null}store.set('trk_'+J.id,trk);location.hash='';$('#nav').style.display='none';$('#home').style.display='block';drawList()};
+$('#bIr').onclick=()=>{const q=J.started?J.p[J.i]:J.p[0];window.open(`https://www.google.com/maps/dir/?api=1&destination=${q[0]},${q[1]}&travelmode=driving`,'_blank')};
 $('#bVoz').onclick=()=>{voz=!voz;store.set('voz',voz);$('#bVoz').textContent=voz?'🔊 Voz':'🔇 Voz';if(voz)speak('Voz activada')};
 $('#bCen').onclick=()=>{follow=true;if(fixPos)map.setView(fixPos,17)};
 document.addEventListener('touchstart',e=>{if(e.target.closest('#map'))follow=false},{passive:true});
