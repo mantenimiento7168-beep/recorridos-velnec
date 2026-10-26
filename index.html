@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f6f6a">
+<title>Recorridos VELNEC</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{--ac:#1f6f6a;--bg:#f4f6f3;--fg:#1b211e;--mu:#5d6862;--ok:#2f9e57;--bad:#c0392b}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{font:16px/1.4 system-ui,-apple-system,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+#home{padding:16px;padding-top:calc(16px + env(safe-area-inset-top));max-width:640px;margin:0 auto}
+h1{font-size:1.25rem;margin:0 0 4px}.mu{color:var(--mu);font-size:.9rem}
+input,select{font:inherit;padding:10px;border:1px solid #cfd6d0;border-radius:10px;width:100%;background:#fff}
+.list{display:grid;gap:8px;margin-top:12px}
+.item{background:#fff;border:1px solid #dde2dc;border-radius:12px;padding:12px;display:grid;gap:2px;cursor:pointer}
+.item b{font-size:1.05rem}.item .pg{height:5px;background:#e6ebe6;border-radius:3px;overflow:hidden;margin-top:6px}.item .pg i{display:block;height:100%;background:var(--ok)}
+#nav{position:fixed;inset:0;display:none;flex-direction:column}
+#map{flex:1}
+#top{background:var(--ac);color:#fff;padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));display:flex;gap:12px;align-items:center}
+#arrow{font-size:2.6rem;line-height:1;width:52px;text-align:center}
+#instr{flex:1;min-width:0}#dist{font-size:1.6rem;font-weight:700}#street{font-size:1rem;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bot{background:#fff;border-top:1px solid #dde2dc;padding:8px 12px;padding-bottom:calc(8px + env(safe-area-inset-bottom));display:grid;gap:6px}
+#bar{height:8px;background:#e6ebe6;border-radius:4px;overflow:hidden}#bar i{display:block;height:100%;width:0;background:var(--ok)}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+button{font:inherit;border:0;border-radius:10px;padding:9px 12px;background:#e9eeea;color:var(--fg);cursor:pointer}
+button.pri{background:var(--ac);color:#fff}
+#msg{font-size:.9rem;color:var(--bad);font-weight:600}
+.off #top{background:var(--bad)}
+</style></head><body>
+<section id="home">
+ <h1>Recorridos de campo · Interventoría AP</h1>
+ <p class="mu">Escoja la jornada que le asignaron. La app lo guía calle por calle y va marcando en verde lo recorrido.</p>
+ <div style="display:grid;gap:8px;grid-template-columns:1fr 1fr"><select id="fCom"><option value="">Todas las comunas</option></select><input id="fQ" placeholder="Buscar código o barrio"></div>
+ <div class="list" id="list"></div>
+</section>
+<section id="nav">
+ <div id="top"><div id="arrow">⬆</div><div id="instr"><div id="dist">—</div><div id="street">Esperando GPS…</div></div></div>
+ <div id="map"></div>
+ <div id="bot">
+  <div class="row"><b id="title"></b><span class="mu" id="pct">0 %</span></div>
+  <div id="bar"><i></i></div>
+  <div id="msg"></div>
+  <div class="row"><button id="bBack">◀ Jornadas</button><button id="bVoz">🔊 Voz</button><button id="bCen">Centrar</button><button id="bGpx" class="pri">Guardar GPX</button></div>
+ </div>
+</section>
+<script>
+const $=s=>document.querySelector(s);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let IDX=[],J=null,map,lay={},fixPos=null,watch=null,voz=store.get('voz',true),follow=true,trk=[];
+const R=6371000,rad=Math.PI/180;
+function dist(a,b){const x=(b[1]-a[1])*rad*Math.cos((a[0]+b[0])/2*rad),y=(b[0]-a[0])*rad;return Math.hypot(x,y)*R}
+function bearing(a,b){const y=Math.sin((b[1]-a[1])*rad)*Math.cos(b[0]*rad),x=Math.cos(a[0]*rad)*Math.sin(b[0]*rad)-Math.sin(a[0]*rad)*Math.cos(b[0]*rad)*Math.cos((b[1]-a[1])*rad);return (Math.atan2(y,x)/rad+360)%360}
+const fmt=m=>m>=1000?(m/1000).toFixed(1)+' km':Math.round(m/10)*10+' m';
+// ---------- inicio
+async function init(){IDX=await (await fetch('data/indice.json')).json();
+ const cs=[...new Map(IDX.map(j=>[j.com,j.cn])).entries()];$('#fCom').innerHTML+=cs.map(([c,n])=>`<option value="${c}">${+c} · ${n}</option>`).join('');
+ $('#fCom').value=store.get('com','');drawList();$('#fCom').onchange=()=>{store.set('com',$('#fCom').value);drawList()};$('#fQ').oninput=drawList;
+ const last=store.get('ultima',null);if(last&&location.hash==='#nav')open(last)}
+function drawList(){const c=$('#fCom').value,q=$('#fQ').value.toLowerCase();
+ $('#list').innerHTML=IDX.filter(j=>(!c||j.com===c)&&(!q||(j.id+' '+j.bar.join(' ')).toLowerCase().includes(q))).map(j=>{const p=store.get('prog_'+j.id,{i:0,pct:0});return `<div class="item" data-id="${j.id}"><b>${j.id} · ${j.cn}</b><span class="mu">${j.bar.join(', ')}</span><span class="mu">${j.km} km de recorrido${p.pct?` · avance ${p.pct} %`:''}</span>${p.pct?`<div class="pg"><i style="width:${p.pct}%"></i></div>`:''}</div>`}).join('')}
+$('#list').addEventListener('click',e=>{const it=e.target.closest('.item');if(it)open(it.dataset.id)});
+// ---------- jornada
+async function open(id){const d=await (await fetch('data/'+id+'.json')).json();
+ J={...d,cum:[0]};for(let i=1;i<d.p.length;i++)J.cum.push(J.cum[i-1]+dist(d.p[i-1],d.p[i]));J.L=J.cum[J.cum.length-1];
+ J.man=maneuvers(d);const pr=store.get('prog_'+id,{i:0});J.i=pr.i||0;J.off=0;J.spoken={};trk=store.get('trk_'+id,[]);
+ store.set('ultima',id);location.hash='nav';$('#home').style.display='none';$('#nav').style.display='flex';$('#title').textContent=id+' · '+d.bar.slice(0,3).join(', ');
+ if(!map){map=L.map('map',{zoomControl:false,preferCanvas:true});L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Esri'}).addTo(map)}
+ setTimeout(()=>map.invalidateSize(),50);Object.values(lay).forEach(l=>l&&l.remove());
+ lay.all=L.polyline(d.p,{color:'#7d8a84',weight:5,opacity:.55}).addTo(map);lay.done=L.polyline([],{color:'#2f9e57',weight:6}).addTo(map);
+ lay.next=L.polyline([],{color:'#2563eb',weight:7}).addTo(map);lay.me=L.circleMarker(d.p[0],{radius:8,color:'#fff',weight:3,fillColor:'#2563eb',fillOpacity:1}).addTo(map);lay.link=L.polyline([],{color:'#c0392b',weight:3,dashArray:'6 6'}).addTo(map);
+ lay.start=L.marker(d.p[0]).bindTooltip('Inicio').addTo(map);map.fitBounds(lay.all.getBounds(),{padding:[20,20]});render();startGps();wake()}
+function maneuvers(d){const M=[];const p=d.p,n=d.n;const cum=[0];for(let i=1;i<p.length;i++)cum.push(cum[i-1]+dist(p[i-1],p[i]));
+ const at=(i,back)=>{let j=i;const s=cum[i];if(back){while(j>0&&s-cum[j]<20)j--}else{while(j<p.length-1&&cum[j]-s<20)j++}return j};
+ for(let i=1;i<p.length-1;i++){const a=at(i,true),b=at(i,false);if(a===i||b===i)continue;
+  let t=bearing(p[i],p[b])-bearing(p[a],p[i]);t=((t+540)%360)-180;const nn=n[i+1]||n[i]||'';const changed=nn!==(n[i-1]||'');
+  if(Math.abs(t)>=150)M.push({i,t,k:'retorno',s:nn});
+  else if(Math.abs(t)>=40)M.push({i,t,k:t>0?'derecha':'izquierda',s:nn});
+  else if(Math.abs(t)>=20&&changed)M.push({i,t,k:t>0?'ligeramente a la derecha':'ligeramente a la izquierda',s:nn});}
+ // quitar maniobras demasiado juntas (<15 m)
+ const out=[];M.forEach(m=>{if(out.length&&cum[m.i]-cum[out[out.length-1].i]<15)return;out.push(m)});return out}
+const ARW={derecha:'➡',izquierda:'⬅',retorno:'↩','ligeramente a la derecha':'↗','ligeramente a la izquierda':'↖'};
+function speak(t){if(!voz||!window.speechSynthesis)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='es-CO';u.rate=1.05;speechSynthesis.speak(u)}catch(e){}}
+// ---------- GPS y avance (solo hacia adelante para no confundirse con calles repetidas)
+function startGps(){if(watch!=null)return;if(!navigator.geolocation){$('#msg').textContent='Este teléfono no permite usar el GPS en el navegador.';return}
+ watch=navigator.geolocation.watchPosition(onPos,err=>{$('#msg').textContent=err.code===1?'Permita la ubicación para esta página (candado de la barra de direcciones → Permisos → Ubicación).':'Buscando señal de GPS…'},{enableHighAccuracy:true,maximumAge:2000,timeout:20000})}
+function onPos(e){const q=[e.coords.latitude,e.coords.longitude];fixPos=q;$('#msg').textContent='';const acc=e.coords.accuracy||20;
+ trk.push([+q[0].toFixed(6),+q[1].toFixed(6),Date.now()]);if(trk.length%10===0)store.set('trk_'+J.id,trk);
+ const p=J.p,tol=Math.max(30,Math.min(60,acc*1.5));let best=-1;
+ // buscar el primer punto de la ruta, desde la posición actual hacia adelante (≤600 m), que esté cerca
+ const lim=J.cum[J.i]+600;for(let k=Math.max(0,J.i-3);k<p.length&&J.cum[k]<=lim;k++){if(dist(q,p[k])<=tol){best=k;let kk=k;while(kk+1<p.length&&dist(q,p[kk+1])<dist(q,p[kk])&&dist(q,p[kk+1])<=tol)kk++;best=kk;break}}
+ if(best>=0){J.i=Math.max(J.i,best);J.off=0}else{J.off++}
+ store.set('prog_'+J.id,{i:J.i,pct:Math.round(J.cum[J.i]/J.L*100)});render()}
+function render(){const p=J.p,i=J.i,pct=Math.round(J.cum[i]/J.L*100);
+ lay.done.setLatLngs(p.slice(0,i+1));let j=i;while(j<p.length-1&&J.cum[j]-J.cum[i]<300)j++;lay.next.setLatLngs(p.slice(i,j+1));
+ $('#bar i').style.width=pct+'%';$('#pct').textContent=`${pct} % · faltan ${fmt(J.L-J.cum[i])}`;
+ if(fixPos){lay.me.setLatLng(fixPos);if(follow)map.setView(fixPos,Math.max(map.getZoom(),17),{animate:false})}
+ const off=J.off>=3&&fixPos;document.body.classList.toggle('off',!!off);
+ if(off){lay.link.setLatLngs([fixPos,p[i]]);$('#arrow').textContent='⚠';$('#dist').textContent=fmt(dist(fixPos,p[i]));$('#street').textContent='Fuera de la ruta: vuelva a la línea azul'+(J.p[i]&&J.n[i]?' en '+J.n[i]:'');
+  if(!J.spoken['off'+i]){J.spoken['off'+i]=1;speak('Fuera de la ruta. Regrese a la línea azul.')}return}
+ lay.link.setLatLngs([]);
+ if(pct>=99){$('#arrow').textContent='✔';$('#dist').textContent='Jornada terminada';$('#street').textContent='Guarde el GPX y avise al coordinador';if(!J.spoken.fin){J.spoken.fin=1;speak('Jornada terminada.')}return}
+ const m=J.man.find(m=>m.i>i);if(!m){$('#arrow').textContent='⬆';$('#dist').textContent=fmt(J.L-J.cum[i]);$('#street').textContent='Siga hasta el final';return}
+ const dm=J.cum[m.i]-J.cum[i];$('#arrow').textContent=ARW[m.k]||'⬆';$('#dist').textContent=fmt(dm);
+ const txt=(m.k==='retorno'?'Dé la vuelta':'Gire a la '+m.k.replace('ligeramente a la ','').replace(/^/, m.k.startsWith('ligeramente')?'':''))+(m.s?' por '+m.s:'');
+ const t2=m.k==='retorno'?'Dé la vuelta'+(m.s?' por '+m.s:''):m.k.startsWith('ligeramente')?'Tome '+m.k+(m.s?' por '+m.s:''):'Gire a la '+m.k+(m.s?' por '+m.s:'');
+ $('#street').textContent=t2;
+ if(dm<=150&&dm>50&&!J.spoken['a'+m.i]){J.spoken['a'+m.i]=1;speak('En '+Math.round(dm/10)*10+' metros, '+t2)}
+ if(dm<=35&&!J.spoken['b'+m.i]){J.spoken['b'+m.i]=1;speak(t2)}}
+// ---------- botones
+$('#bBack').onclick=()=>{if(watch!=null){navigator.geolocation.clearWatch(watch);watch=null}store.set('trk_'+J.id,trk);location.hash='';$('#nav').style.display='none';$('#home').style.display='block';drawList()};
+$('#bVoz').onclick=()=>{voz=!voz;store.set('voz',voz);$('#bVoz').textContent=voz?'🔊 Voz':'🔇 Voz';if(voz)speak('Voz activada')};
+$('#bCen').onclick=()=>{follow=true;if(fixPos)map.setView(fixPos,17)};
+document.addEventListener('touchstart',e=>{if(e.target.closest('#map'))follow=false},{passive:true});
+$('#bGpx').onclick=()=>{store.set('trk_'+J.id,trk);const d=new Date();const tag=`${String(d.getDate()).padStart(2,'0')}_${String(d.getMonth()+1).padStart(2,'0')}_${d.getFullYear()}`;
+ const g=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Recorridos VELNEC" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${J.id} ${tag}</name><trkseg>`+trk.map(q=>`<trkpt lat="${q[0]}" lon="${q[1]}"><time>${new Date(q[2]).toISOString()}</time></trkpt>`).join('')+'</trkseg></trk></gpx>';
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([g],{type:'application/gpx+xml'}));a.download=`${tag}_${J.id}.gpx`;a.click()};
+$('#bVoz').textContent=voz?'🔊 Voz':'🔇 Voz';
+async function wake(){try{if('wakeLock' in navigator){const w=await navigator.wakeLock.request('screen');document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')navigator.wakeLock.request('screen').catch(()=>{})})}}catch(e){}}
+init();
+</script></body></html>
