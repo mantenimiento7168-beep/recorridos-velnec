@@ -57,12 +57,12 @@ const fmt=m=>m>=1000?(m/1000).toFixed(1)+' km':Math.round(m/10)*10+' m';
 async function init(){IDX=await (await fetch('indice.json')).json();
  const cs=[...new Map(IDX.map(j=>[j.com,j.cn])).entries()];$('#fCom').innerHTML+=cs.map(([c,n])=>`<option value="${c}">${+c} · ${n}</option>`).join('');
  $('#fCom').value=store.get('com','');drawList();$('#fCom').onchange=()=>{store.set('com',$('#fCom').value);drawList()};$('#fQ').oninput=drawList;
- const last=store.get('ultima',null);if(last&&location.hash==='#nav')open(last)}
+ const last=store.get('ultima',null);if(last&&location.hash==='#nav')abrirJornada(last)}
 function drawList(){const c=$('#fCom').value,q=$('#fQ').value.toLowerCase();
  $('#list').innerHTML=IDX.filter(j=>(!c||j.com===c)&&(!q||(j.id+' '+j.bar.join(' ')).toLowerCase().includes(q))).map(j=>{const p=store.get('prog_'+j.id,{i:0,pct:0});return `<div class="item" data-id="${j.id}"><b>${j.id} · ${j.cn}</b><span class="mu">${j.bar.join(', ')}</span><span class="mu">${j.km} km de recorrido${p.pct?` · avance ${p.pct} %`:''}</span>${p.pct?`<div class="pg"><i style="width:${p.pct}%"></i></div>`:''}</div>`}).join('')}
-$('#list').addEventListener('click',e=>{const it=e.target.closest('.item');if(it)open(it.dataset.id)});
+$('#list').addEventListener('click',e=>{const it=e.target.closest('.item');if(it)abrirJornada(it.dataset.id)});
 // ---------- jornada
-async function open(id){const c=id.split('-')[0];const d=(await (await fetch(c+'.json')).json())[id];
+async function abrirJornada(id){const c=id.split('-')[0];const d=(await (await fetch(c+'.json')).json())[id];
  J={...d,cum:[0]};for(let i=1;i<d.p.length;i++)J.cum.push(J.cum[i-1]+dist(d.p[i-1],d.p[i]));J.L=J.cum[J.cum.length-1];
  J.man=maneuvers(d);const pr=store.get('prog_'+id,{i:0});J.i=pr.i||0;J.off=0;J.spoken={};J.started=!!store.get('ini_'+id,0)||J.i>0;trk=store.get('trk_'+id,[]);
  store.set('ultima',id);location.hash='nav';$('#home').style.display='none';$('#nav').style.display='flex';$('#title').textContent=id+' · '+d.bar.slice(0,3).join(', ');
@@ -113,7 +113,7 @@ function render(){const p=J.p,i=J.i,pct=Math.round(J.cum[i]/J.L*100);
  if(dm<=35&&!J.spoken['b'+m.i]){J.spoken['b'+m.i]=1;speak(t2)}}
 // ---------- botones
 $('#bBack').onclick=()=>{if(watch!=null){navigator.geolocation.clearWatch(watch);watch=null}store.set('trk_'+J.id,trk);location.hash='';$('#nav').style.display='none';$('#home').style.display='block';drawList()};
-$('#bIr').onclick=()=>{const q=J.started?J.p[J.i]:J.p[0];window.open(`https://www.google.com/maps/dir/?api=1&destination=${q[0]},${q[1]}&travelmode=driving`,'_blank')};
+$('#bIr').onclick=()=>{const q=J.started?J.p[J.i]:J.p[0];const a=document.createElement('a');a.href=`https://www.google.com/maps/dir/?api=1&destination=${q[0]},${q[1]}&travelmode=driving`;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove()};
 $('#bVoz').onclick=()=>{voz=!voz;store.set('voz',voz);$('#bVoz').textContent=voz?'🔊 Voz':'🔇 Voz';if(voz)speak('Voz activada')};
 $('#bCen').onclick=()=>{follow=true;if(fixPos)map.setView(fixPos,17)};
 document.addEventListener('touchstart',e=>{if(e.target.closest('#map'))follow=false},{passive:true});
